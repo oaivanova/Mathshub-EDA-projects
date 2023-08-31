@@ -1,0 +1,474 @@
+## Подключение библиотек
+
+from google.colab import drive
+drive.mount('/content/drive')
+
+!pip install pandas_profiling
+!pip install matplotlib
+!pip install mapclassify
+!pip install pygwalker
+!git clone https://github.com/oaivanova/Mathshub-EDA-projects.git
+
+import pandas as pd
+from pandas_profiling import ProfileReport
+import geopandas as gpd
+import folium as fo
+from folium.plugins import FastMarkerCluster
+from folium import plugins
+from folium.plugins import HeatMap
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from scipy.stats import pearsonr
+import phik
+from phik import resources
+from phik.binning import bin_data
+from phik.report import plot_correlation_matrix
+import pygwalker as pyg
+
+## Просмотр, предобработка и профайлинг данных
+
+### Работа с датасетом Вена будни
+
+vienna_weekdays = pd.read_csv('/content/Mathshub-EDA-projects/vienna_weekdays.csv')
+vienna_weekdays
+
+print('\nСтроки : ', vienna_weekdays.shape[0])
+print('\nКолонки :', vienna_weekdays.shape[1])
+print('\nКолонки:', vienna_weekdays.columns.to_list())
+print('\nУникальные значения:\n', vienna_weekdays.nunique())
+
+ProfileReport(vienna_weekdays)
+
+# построим плотностную гистограмму для цен
+
+plt.figure(figsize=(10, 6))
+plt.hist(vienna_weekdays['realSum'], bins=80, density=True)
+plt.xlabel('Стоимость')
+plt.ylabel('Плотность частоты')
+plt.title('Гистограмма плотностей стоимости аренды жилья в Вене в будни')
+plt.grid(True)
+plt.show()
+
+# построим бокс-плоты для вышеуказанных цен
+vienna_weekdays.boxplot('realSum')
+
+# минимальная и максимальная цена в расчете на 1 постояльца
+
+# создаем колонку realSum_1 и заполняем ее отношением значений колонок realSum и person_capacity
+
+def price_1(columns):
+  realSum = columns[0]
+  person_capacity = columns[1]
+  return (realSum / person_capacity)
+
+vienna_weekdays['realSum_1'] = vienna_weekdays[["realSum", "person_capacity"]].apply(price_1,axis=1)
+
+# находим максимальную цену в расчете на 1 постояльца
+max_price_1 = vienna_weekdays['realSum_1'].max()
+
+# находим минимальную цену в расчете на 1 постояльца
+min_price_1 = vienna_weekdays['realSum_1'].min()
+
+print(f'максимальная цена аренды в расчете на 1 человека в Вене в будни:', max_price_1)
+print(f'минимальная цена аренды в расчете на 1 человека в Вене в будни:', min_price_1)
+
+# проверить гипотезу о большей доли объектов для бизнес размещения ближе к центру города / станции метро
+
+# разобьем общий рейтинг на категориальные переменные, занеся их в отдельный столбец dist_group
+vienna_weekdays['dist_group'] = pd.cut(vienna_weekdays['dist'], [0, 2, 4, 6, 8, 10, 12, 14])
+
+# используем метод crosstab для булевской переменной biz и категориальной переменной dist_group, нормализуем значения построчно
+pd.crosstab(vienna_weekdays['biz'], vienna_weekdays['dist_group'], normalize='index')
+
+# гипотеза подтверждается для объектов в радиусе не более 4км от центра города - здесь доля объектов для бизнес размещений превышает значения для не бизнес размещений
+
+# проверить гипотезу о большей доли объектов для бизнес размещения ближе к станции метро
+
+# разобьем общий рейтинг на категориальные переменные, занеся их в отдельный столбец metro_dist_group
+vienna_weekdays['metro_dist_group'] = pd.cut(vienna_weekdays['metro_dist'], [0, 1, 2, 3, 4, 5, 6])
+
+# используем метод crosstab для булевской переменной biz и категориальной переменной metro_dist_group, нормализуем значения построчно
+pd.crosstab(vienna_weekdays['biz'], vienna_weekdays['metro_dist_group'], normalize='index')
+
+# гипотеза подтверждается для объектов в радиусе не более 2км от центра города - здесь доля объектов для бизнес размещений незначительно,
+# но превышает значения для не бизнес размещений
+
+### Работа с датасетом Вена выходные
+
+vienna_weekends = pd.read_csv('/content/Mathshub-EDA-projects/vienna_weekends.csv')
+vienna_weekends
+
+print('\nСтроки : ', vienna_weekends.shape[0])
+print('\nКолонки :', vienna_weekends.shape[1])
+print('\nКолонки:', vienna_weekends.columns.to_list())
+print('\nУникальные значения:\n', vienna_weekends.nunique())
+
+ProfileReport(vienna_weekends)
+
+# отображение данных на карте при помощи библиотеки folium
+
+Long = 16.22
+Lat = 48.12
+locations = list(zip(vienna_weekends.lat, vienna_weekends.lng))
+
+map_vienna_weekends = fo.Map(location = [Lat,Long], zoom_start = 9)
+FastMarkerCluster(data=locations).add_to(map_vienna_weekends)
+map_vienna_weekends
+
+# визуализация по типу объектов размещения
+
+vienna_weekends['room_type'].value_counts().plot(kind = 'bar', color=['r','b','y'])
+plt.show
+
+#agg_fun_wien =
+vienna_weekends['realSum_1'].agg(['count', 'mean', 'median'])
+
+# диаграмма рассеяния по типу жилья
+sns.relplot(x='lng', y='lat', data=vienna_weekends,
+            kind='scatter', hue='room_type',
+            height=6, aspect=1.2)
+
+# цена в расчете на 1 постояльца
+vienna_weekends['realSum_1'] = vienna_weekends[["realSum", "person_capacity"]].apply(price_1,axis=1)
+
+# средние и медианные цены на человека в зависимости от типа жилья в выходные
+# !необходимо добавить iqr для медианных значений
+
+agg_func_math = {
+    'realSum_1': ['mean', 'std', 'median', 'count']
+}
+vienna_weekends.groupby(['room_type']).agg(agg_func_math).round(3)
+
+# средние и медианные цены на человека в зависимости от типа жилья в будни
+vienna_weekdays['realSum_1'] = vienna_weekdays[["realSum", "person_capacity"]].apply(price_1,axis=1)
+vienna_weekdays.groupby(['room_type']).agg(agg_func_math).round(3)
+
+# Как видно, в будние дни средние значения цен несколько выше, чем в выходные; а в выходные - выше медианные. Это указывает на то, что в будние появляются объекты
+# размещения с высокими значениями цены, которые дают скошенность. В то же время, стоимость жилья на выходных, в среднем, выше.
+
+# общие средние и медианные цены на человека в Вене в выходные
+vienna_weekends['realSum_1'].agg(['count', 'mean', 'median'])
+
+# общие средние и медианные цены на человека в Вене в выходные
+vienna_weekdays['realSum_1'].agg(['count', 'mean', 'median'])
+
+# находим коэффициент корреляции между расстоянием от объекта аренды до центра города и ценой аренды в Вене в выходные в расчете на 1 человека
+
+# создаем колонку realSum_1 и заполняем ее отношением значений колонок realSum и person_capacity
+
+def price_1(columns):
+  realSum = columns[0]
+  person_capacity = columns[1]
+  return (realSum / person_capacity)
+
+vienna_weekends['realSum_1'] = vienna_weekends[["realSum", "person_capacity"]].apply(price_1,axis=1)
+
+corr=vienna_weekends['dist'].corr(vienna_weekends['realSum_1'])
+print(f'коэффициент корреляции между расстоянием от объекта аренды до центра города и ценой аренды в Вене в выходные в расчете на 1 человека:', corr)
+print('\n')
+
+# графическое отображение диаграммы рассеивания для dist и realSum_1 из датасета
+sns.scatterplot(data=vienna_weekends, x="dist", y="realSum_1")
+
+# отсутствует корреляция между расстоянием от объекта аренды до центра города и ценой аренды в Вене в выходные в расчете на 1 человека
+
+# определяем, есть ли взаимосязь между расстоянием от объекта аренды до центра города и ценой аренды в Вене в выходные в расчете на 1 человека
+
+# разобьем расстояния от объекта аренды до центра города на категориальные переменные, занеся их в отдельный столбец distance_group
+
+vienna_weekends['distance_group'] = pd.cut(vienna_weekends['dist'], [0, 2, 4, 6, 8, 10, 12, 14])
+
+# расчет медианной цены аренды в расчете на 1 человека для категориальной переменной distance_group
+realSum_dist_median = vienna_weekends.groupby('distance_group')['realSum_1'].median()
+realSum_dist_median
+
+# стоимость аренды в объектах, находящихся не более 2км от центра, заметно выше по сравнению с остальными районами
+# в остальных районах зависимость между расстоянием до центра города и ценой аренды не выявлена
+
+# выяснить, есть ли корреляция между оценкой объекта расположения и нормированными индексами ресторанов и развлечений
+
+# найдем коэффициент корреляции между оценкой объекта расположения и нормированным индексом развлечений
+corr_attr=vienna_weekends['attr_index_norm'].corr(vienna_weekends['guest_satisfaction_overall'])
+print(f'коэффициент корреляции между оценкой объекта расположения и нормированным индексом развлечений:', corr_attr)
+print('\n')
+
+# графическое отображение диаграммы рассеивания для attr_index_norm и guest_satisfaction_overall из датасета
+sns.scatterplot(data=vienna_weekends, x="attr_index_norm", y="guest_satisfaction_overall")
+
+# корреляция между нормированными индексом развлечений и оценкой объекта расположения отсутствует
+
+# найдем коэффициент корреляции между оценкой объекта расположения и нормированным индексом ресторанов
+corr_rest=vienna_weekends['rest_index_norm'].corr(vienna_weekends['guest_satisfaction_overall'])
+print(f'коэффициент корреляции между оценкой объекта расположения и нормированным индексом ресторанов:', corr_rest)
+print('\n')
+
+# графическое отображение диаграммы рассеивания для rest_index_norm и guest_satisfaction_overall из датасета
+sns.scatterplot(data=vienna_weekends, x="rest_index_norm", y="guest_satisfaction_overall")
+
+# корреляция между нормированными индексом ресторанов и оценкой объекта расположения отсутствует
+
+# проверить гипотезу, что максимально возможное количество постояльцев увеличивается при приближении к центру города
+
+# найдем соответствующий коэффициент корреляции
+corr_gst=vienna_weekends['dist'].corr(vienna_weekends['person_capacity'])
+print(f'коэффициент корреляции между расстоянием до центра города и максимально возможным количеством постояльцев:', corr_gst)
+print('\n')
+
+# графическое отображение диаграммы рассеивания для dist и person_capacity из датасета
+sns.scatterplot(data=vienna_weekends, x="dist", y="person_capacity")
+
+# корреляция между расстоянием до центра города и максимально возможным количеством постояльцев отсутствует
+
+# проверить гипотезу, что количество спальных комнат в объектах ближе к центру города больше по сравнению с остальными районами
+
+# найдем соответствующий коэффициент корреляции
+corr_gst=vienna_weekends['dist'].corr(vienna_weekends['bedrooms'])
+print(f'коэффициент корреляции между расстоянием до центра города и количеством спальных комнат:', corr_gst)
+print('\n')
+
+# графическое отображение диаграммы рассеивания для dist и bedrooms из датасета
+sns.scatterplot(data=vienna_weekends, x="dist", y="bedrooms")
+
+# # корреляция между расстоянием до центра города и количеством спальных комнат отсутствует
+
+# проверить гипотезу  о наличии корреляции общего рейтинга объекта не ниже 90 и доли владельцев объекта superhost
+
+# разобьем общий рейтинг на категориальные переменные, занеся их в отдельный столбец guest_satisfaction_overall_group
+
+vienna_weekends['guest_satisfaction_overall_group'] = pd.cut(vienna_weekends['guest_satisfaction_overall'], [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100])
+
+# используем метод crosstab для булевской переменной host_is_superhost и категориальной переменной guest_satisfaction_overall_group, нормализуем значения построчно
+pd.crosstab(vienna_weekends['host_is_superhost'], vienna_weekends['guest_satisfaction_overall_group'], normalize='index')
+
+# найдем соответствующий коэффициент корреляции
+corr_spr=vienna_weekends['host_is_superhost'].corr(vienna_weekends['guest_satisfaction_overall'])
+print(f'коэффициент корреляции между типом владельца объекта и общим рейтингом объекта:', corr_spr)
+
+# доля владельцев объекта superhost в диапазоне (98, 100] категориальной переменной guest_satisfaction_overall составляет 97% от их общего числа
+# доля владельцев не superhost в этом же диапазоне составляет значительно меньше - 69%
+
+# проверить гипотезу о большей доли владельцев объекта superhost в случае типа объекта размещения entire home/apartment
+
+# используем метод crosstab для булевской переменной host_is_superhost и категориальной переменной room_type, нормализуем значения построчно
+pd.crosstab(vienna_weekends['host_is_superhost'], vienna_weekends['room_type'], normalize='index')
+
+# доля владельцев superhost объектов Entire home/apt составляет 80% от их общего числа
+# доля владельцев не superhost в этой же категории составляет незначительно меньше - 77%
+
+# найти медианные расстояния до центра для различных типов размещения (room_type) в определенном диапазоне стоимости аренды в расчете на 1 постояльца
+
+vienna_weekends_100_200 = vienna_weekends.query('realSum_1 > 100 and realSum_1 < 200')
+vienna_weekends_100_200.groupby('room_type')['dist'].median()
+
+# в каком типе объектов (room_type) соответствующая доля для бизнес размещения максимальна
+
+# фильтруем объекты размещения, берем только подходящие для бизнес размещения
+vienna_weekends_biz = vienna_weekends.query('biz==1')
+
+# используем метод crosstab для булевской переменной biz и категориальной переменной room_type, нормализуем значения построчно
+pd.crosstab(vienna_weekends_biz['biz'], vienna_weekends_biz['room_type'], normalize='index')
+
+# доля для бизнес размещения максимальна в категории Entire home/apt = 87%
+
+## Склейка данных будни-выходные для одного города
+
+Вена
+
+vienna_total = pd.concat([vienna_weekdays, vienna_weekends])
+
+# средние и медианные рейтинги чистоты в данном городе
+vienna_total['cleanliness_rating'].agg(['mean', 'median'])
+
+vienna_weekdays = pd.read_csv('/content/Mathshub-EDA-projects/vienna_weekdays.csv')
+vienna_weekends = pd.read_csv('/content/Mathshub-EDA-projects/vienna_weekends.csv')
+
+# соединение "в лоб" (не учитывает повторяющиеся объекты размещения)
+vienna_total = pd.concat([vienna_weekdays, vienna_weekends])
+vienna_total
+
+print('\nСтроки : ', vienna_total.shape[0])
+print('\nКолонки :', vienna_total.shape[1])
+print('\nКолонки:', vienna_total.columns.to_list())
+print('\nУникальные значения:\n', vienna_total.nunique())
+
+# locations = list(zip(vienna_total.lat, vienna_total.lng))
+
+# map_vienna_total = fo.Map(location = [Lat,Long], zoom_start = 9)
+# FastMarkerCluster(data=locations).add_to(map_vienna_total)
+# map_vienna_total
+
+## Карта города с объектами (и расчёт центра) Вена (выходные)
+
+vienna_weekends = pd.read_csv('/content/drive/MyDrive/Mathshub/EDA/Airbnb/vienna_weekends.csv')
+gdf_vienna_weekends = gpd.GeoDataFrame(vienna_weekends, geometry = gpd.points_from_xy(vienna_weekends.lng, vienna_weekends.lat)).set_crs(4326)
+gdf_vienna_weekends
+
+gdf_vienna_weekends.explore()
+
+# конвертация в метрическую систему координат
+gdf_vienna_weekends = gdf_vienna_weekends.to_crs(3857)
+gdf_vienna_weekends
+
+# задать расстояние до буфера (определение точки центра города)
+gdf_buffered_vienna = gdf_vienna_weekends.copy()
+gdf_buffered_vienna.geometry = gdf_buffered_vienna.buffer(gdf_vienna_weekends.dist*1000)
+#gdf_buffered.explore()
+gdf_buffered_vienna
+
+gdf_buffered_vienna.explore()
+
+# centre - см. функции overlay, geopanas intersects и clip. Метод триангуляции?
+
+# # полигон для центра
+# gdf = gpd.read_file('/content/drive/MyDrive/Mathshub/EDA/Airbnb/vienna_potential_centre.geojson')
+# gdf
+
+## Анализ для выборки городов
+
+# выгружаем датасеты для всех городов, создаем колонку city и заполняем ее для каждого файла
+
+vienna_weekdays = pd.read_csv('/content/Mathshub-EDA-projects/vienna_weekdays.csv')
+vienna_weekdays['city'] = 'vienna'
+vienna_weekdays['days'] = 'weekdays'
+
+vienna_weekends = pd.read_csv('/content/Mathshub-EDA-projects/vienna_weekends.csv')
+vienna_weekends['city'] = 'vienna'
+vienna_weekends['days'] = 'weekends'
+
+rome_weekdays = pd.read_csv('/content/Mathshub-EDA-projects/rome_weekdays.csv')
+rome_weekdays['city'] = 'rome'
+rome_weekdays['days'] = 'weekdays'
+
+rome_weekends = pd.read_csv('/content/Mathshub-EDA-projects/rome_weekends.csv')
+rome_weekends['city'] = 'rome'
+rome_weekends['days'] = 'weekends'
+
+paris_weekdays = pd.read_csv('/content/Mathshub-EDA-projects/paris_weekdays.csv')
+paris_weekdays['city'] = 'paris'
+paris_weekdays['days'] = 'weekdays'
+
+paris_weekends = pd.read_csv('/content/Mathshub-EDA-projects/paris_weekends.csv')
+paris_weekends['city'] = 'paris'
+paris_weekends['days'] = 'weekends'
+
+london_weekdays = pd.read_csv('/content/Mathshub-EDA-projects/london_weekdays.csv')
+london_weekdays['city'] = 'london'
+london_weekdays['days'] = 'weekdays'
+
+london_weekends = pd.read_csv('/content/Mathshub-EDA-projects/london_weekends.csv')
+london_weekends['city'] = 'london'
+london_weekends['days'] = 'weekends'
+
+lisbon_weekdays = pd.read_csv('/content/Mathshub-EDA-projects/lisbon_weekdays.csv')
+lisbon_weekdays['city'] = 'lisbon'
+lisbon_weekdays['days'] = 'weekdays'
+
+lisbon_weekends = pd.read_csv('/content/Mathshub-EDA-projects/lisbon_weekends.csv')
+lisbon_weekends['city'] = 'lisbon'
+lisbon_weekends['days'] = 'weekends'
+
+budapest_weekdays = pd.read_csv('/content/Mathshub-EDA-projects/budapest_weekdays.csv')
+budapest_weekdays['city'] = 'budapest'
+budapest_weekdays['days'] = 'weekdays'
+
+budapest_weekends = pd.read_csv('/content/Mathshub-EDA-projects/budapest_weekends.csv')
+budapest_weekends['city'] = 'budapest'
+budapest_weekends['days'] = 'weekends'
+
+berlin_weekdays = pd.read_csv('/content/Mathshub-EDA-projects/berlin_weekdays.csv')
+berlin_weekdays['city'] = 'berlin'
+berlin_weekdays['days'] = 'weekdays'
+
+berlin_weekends = pd.read_csv('/content/Mathshub-EDA-projects/berlin_weekends.csv')
+berlin_weekends['city'] = 'berlin'
+berlin_weekends['days'] = 'weekends'
+
+barcelona_weekdays = pd.read_csv('/content/Mathshub-EDA-projects/barcelona_weekdays.csv')
+barcelona_weekdays['city'] = 'barcelona'
+barcelona_weekdays['days'] = 'weekdays'
+
+barcelona_weekends = pd.read_csv('/content/Mathshub-EDA-projects/barcelona_weekends.csv')
+barcelona_weekends['city'] = 'barcelona'
+barcelona_weekends['days'] = 'weekends'
+
+athens_weekdays = pd.read_csv('/content/Mathshub-EDA-projects/athens_weekdays.csv')
+athens_weekdays['city'] = 'athens'
+athens_weekdays['days'] = 'weekdays'
+
+athens_weekends = pd.read_csv('/content/Mathshub-EDA-projects/athens_weekends.csv')
+athens_weekends['city'] = 'athens'
+athens_weekends['days'] = 'weekends'
+
+amsterdam_weekdays = pd.read_csv('/content/Mathshub-EDA-projects/amsterdam_weekdays.csv')
+amsterdam_weekdays['city'] = 'amsterdam'
+amsterdam_weekdays['days'] = 'weekdays'
+
+amsterdam_weekends = pd.read_csv('/content/Mathshub-EDA-projects/amsterdam_weekends.csv')
+amsterdam_weekends['city'] = 'amsterdam'
+amsterdam_weekends['days'] = 'weekends'
+
+# создание сводного датасета для всех городов
+city_total = pd.concat([vienna_weekdays, vienna_weekends, rome_weekdays, rome_weekends, paris_weekdays, paris_weekends,
+                        london_weekdays, london_weekends, lisbon_weekdays, lisbon_weekends, budapest_weekdays, budapest_weekends,
+                        berlin_weekdays, berlin_weekends, barcelona_weekdays, barcelona_weekends, athens_weekdays, athens_weekends,
+                        amsterdam_weekdays, amsterdam_weekends])
+
+# в данном датасете создаем столбец с булевыми значениями присутствия выбросов
+for city in city_total.city.unique():
+    city_total.loc[city_total.city == city, 'outliers'] = city_total.loc[city_total.city == city,
+                                                       'realSum'] > city_total.loc[city_total.city == city, 'realSum'].quantile(0.99)
+
+# количество выбросов в категории realSum по каждому городу
+city_total.query("outliers == True").city.value_counts()
+
+# построим диаграммы распределения для стоимости аренды
+sns.scatterplot(data=city_total, x="realSum_1", y="city", hue='outliers')
+plt.tight_layout()
+plt.show()
+
+# самый дорогой и самый доступный город для аренды в расчете на 1 человека
+city_total['realSum_1'] = city_total[["realSum", "person_capacity"]].apply(price_1,axis=1)
+
+city_total.sort_values('realSum_1')
+
+max_sum = city_total['realSum_1'].max()
+city_total[city_total['realSum_1'] == max_sum]['city']
+
+min_sum = city_total['realSum_1'].min()
+city_total[city_total['realSum_1'] == min_sum]['city']
+
+## Самым дорогим городом для аренды жилья в расчете на 1 человека являются Афины, а самым доступным - Будапешт.
+
+# найти город, в котором доля хостелов (shared room) максимальна
+city_shared = city_total.query("room_type == 'Shared room'")
+city_shared.groupby(['room_type','city'])['room_type'].count().sort_values(ascending=False)
+
+pd.crosstab(city_total['city'], city_total['room_type'], normalize='index')
+
+## Наибольшее количество хостелов - в Париже (94), наибольшая доля хостелов среди объектов определенного города - в Берлине (2.94%)
+
+# в каком городе максимальные средние рейтинги чистоты
+#city_total.sort_values('cleanliness_rating')
+city_shared.groupby(['city'])['cleanliness_rating'].median().round(2).sort_values(ascending=False)
+
+## Максимальный медианный рейтинг чистоты - в Будапеште
+
+#проверить зависимость рейтинга чистоты от аренды в будни и выходные
+city_clean_days = city_total.groupby(['city','days'])['cleanliness_rating'].mean().round(2).sort_values(ascending=False)
+city_clean_days
+
+## рейтинг чистоты в выходные дни для 70% представленных городов выше, чем в будние
+
+city_clean_days = city_total.groupby(['city','days'])['cleanliness_rating'].mean().plot.bar(figsize=(15,5),
+                                                                title='Рейтинг чистоты в выходные дни')
+plt.ylim(9, 10)
+plt.show()
+
+Long = 9.18
+Lat = 48.70
+locations = list(zip(city_total.lat, city_total.lng))
+
+map_city_total = fo.Map(location = [Lat,Long], zoom_start = 9)
+FastMarkerCluster(data=locations).add_to(map_city_total)
+map_city_total
